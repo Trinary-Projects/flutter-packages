@@ -14,6 +14,10 @@ import androidx.media3.common.Player;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public abstract class ExoPlayerEventListener implements Player.Listener {
   static final long DURATION_UNSET_INITIALIZATION_TIMEOUT_MS = 2000;
@@ -134,8 +138,50 @@ public abstract class ExoPlayerEventListener implements Player.Listener {
       exoPlayer.seekToDefaultPosition();
       exoPlayer.prepare();
     } else {
-      events.onError("VideoError", "Video player had error " + error, null);
+      events.onError("VideoError", buildErrorMessage(error), buildErrorDetails(error));
     }
+  }
+
+  // Disha fork: PlaybackException.toString() drops the cause, which is the only useful
+  // part of TYPE_UNEXPECTED ("Unexpected runtime error") failures (Sentry DISHA-8ZT).
+  private static final int MAX_CAUSES = 5;
+  private static final int MAX_FRAMES = 15;
+
+  @NonNull
+  private static String buildErrorMessage(@NonNull PlaybackException error) {
+    String message = "Video player had error " + error;
+    Throwable root = rootCause(error);
+    return root == error ? message : message + " (caused by " + root + ")";
+  }
+
+  @NonNull
+  private static Map<String, Object> buildErrorDetails(@NonNull PlaybackException error) {
+    Map<String, Object> details = new HashMap<>();
+    details.put("errorCode", error.errorCode);
+    details.put("errorCodeName", error.getErrorCodeName());
+
+    List<String> causes = new ArrayList<>();
+    for (Throwable t = error.getCause(); t != null && causes.size() < MAX_CAUSES; t = t.getCause()) {
+      causes.add(t.toString());
+    }
+    details.put("causes", causes);
+
+    List<String> frames = new ArrayList<>();
+    StackTraceElement[] trace = rootCause(error).getStackTrace();
+    for (int i = 0; i < Math.min(trace.length, MAX_FRAMES); i++) {
+      frames.add(trace[i].toString());
+    }
+    details.put("rootCauseFrames", frames);
+    return details;
+  }
+
+  @NonNull
+  private static Throwable rootCause(@NonNull Throwable throwable) {
+    Throwable current = throwable;
+    for (int i = 0; i < MAX_CAUSES && current.getCause() != null; i++) {
+      current = current.getCause();
+    }
+    return current;
   }
 
   @Override

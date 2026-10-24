@@ -4,8 +4,10 @@
 
 package io.flutter.plugins.videoplayer;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -19,10 +21,15 @@ import androidx.media3.common.Player;
 import androidx.media3.common.Timeline;
 import androidx.media3.exoplayer.ExoPlayer;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
@@ -168,6 +175,51 @@ public final class ExoPlayerEventListenerTest {
     verify(mockExoPlayer).seekToDefaultPosition();
     verify(mockExoPlayer).prepare();
     verifyNoInteractions(mockCallbacks);
+  }
+
+  @Test
+  public void onErrorReportsCauseChainInMessageAndDetails() {
+    IllegalStateException rootCause = new IllegalStateException("surface released");
+    PlaybackException error =
+        new PlaybackException(
+            "Unexpected runtime error",
+            new RuntimeException("wrapper", rootCause),
+            PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK);
+
+    eventListener.onPlayerError(error);
+
+    ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<Object> details = ArgumentCaptor.forClass(Object.class);
+    verify(mockCallbacks).onError(eq("VideoError"), message.capture(), details.capture());
+    assertTrue(
+        message
+            .getValue()
+            .endsWith("(caused by java.lang.IllegalStateException: surface released)"));
+
+    Map<?, ?> detailsMap = (Map<?, ?>) details.getValue();
+    assertEquals(PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK, detailsMap.get("errorCode"));
+    assertEquals("ERROR_CODE_FAILED_RUNTIME_CHECK", detailsMap.get("errorCodeName"));
+    assertEquals(
+        Arrays.asList(
+            "java.lang.RuntimeException: wrapper",
+            "java.lang.IllegalStateException: surface released"),
+        detailsMap.get("causes"));
+    List<?> frames = (List<?>) detailsMap.get("rootCauseFrames");
+    assertFalse(frames.isEmpty());
+    assertTrue(frames.size() <= 15);
+  }
+
+  @Test
+  public void onErrorWithoutCauseKeepsUpstreamMessage() {
+    PlaybackException error =
+        new PlaybackException("boom", null, PlaybackException.ERROR_CODE_UNSPECIFIED);
+
+    eventListener.onPlayerError(error);
+
+    ArgumentCaptor<Object> details = ArgumentCaptor.forClass(Object.class);
+    verify(mockCallbacks)
+        .onError(eq("VideoError"), eq("Video player had error " + error), details.capture());
+    assertEquals(Collections.emptyList(), ((Map<?, ?>) details.getValue()).get("causes"));
   }
 
   @Test

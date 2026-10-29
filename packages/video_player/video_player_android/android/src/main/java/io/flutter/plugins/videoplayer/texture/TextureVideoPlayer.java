@@ -84,7 +84,15 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
           builder
               .setTrackSelector(trackSelector)
               .setMediaSourceFactory(asset.getMediaSourceFactory(context));
-          return builder.build();
+          ExoPlayer exoPlayer = builder.build();
+          // Disha fork: attach the surface before VideoPlayer's constructor calls prepare().
+          // Otherwise a fast prepare (e.g. a local file) can start the decoder on a placeholder
+          // surface, and some OMX decoders reject the later switch to the ImageReader surface
+          // ("new surface holds onto more buffers than planned for"), failing playback with
+          // IllegalArgumentException from MediaCodec.setOutputSurface (Sentry DISHA-91S).
+          // The constructor sets the same Surface again, which ExoPlayer treats as a no-op.
+          exoPlayer.setVideoSurface(surfaceProducer.getSurface());
+          return exoPlayer;
         });
   }
 

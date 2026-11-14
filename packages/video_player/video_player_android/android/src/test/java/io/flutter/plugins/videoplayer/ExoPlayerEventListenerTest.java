@@ -194,7 +194,10 @@ public final class ExoPlayerEventListenerTest {
     assertTrue(
         message
             .getValue()
-            .endsWith("(caused by java.lang.IllegalStateException: surface released)"));
+            .contains(
+                "(caused by java.lang.IllegalStateException: surface released)"
+                    + " [ERROR_CODE_FAILED_RUNTIME_CHECK at "));
+    assertTrue(message.getValue().endsWith("]"));
 
     Map<?, ?> detailsMap = (Map<?, ?>) details.getValue();
     assertEquals(PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK, detailsMap.get("errorCode"));
@@ -210,7 +213,7 @@ public final class ExoPlayerEventListenerTest {
   }
 
   @Test
-  public void onErrorWithoutCauseKeepsUpstreamMessage() {
+  public void onErrorWithoutCauseAppendsOnlyErrorCode() {
     PlaybackException error =
         new PlaybackException("boom", null, PlaybackException.ERROR_CODE_UNSPECIFIED);
 
@@ -218,7 +221,10 @@ public final class ExoPlayerEventListenerTest {
 
     ArgumentCaptor<Object> details = ArgumentCaptor.forClass(Object.class);
     verify(mockCallbacks)
-        .onError(eq("VideoError"), eq("Video player had error " + error), details.capture());
+        .onError(
+            eq("VideoError"),
+            eq("Video player had error " + error + " [ERROR_CODE_UNSPECIFIED]"),
+            details.capture());
     assertEquals(Collections.emptyList(), ((Map<?, ?>) details.getValue()).get("causes"));
   }
 

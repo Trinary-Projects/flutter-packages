@@ -147,11 +147,26 @@ public abstract class ExoPlayerEventListener implements Player.Listener {
   private static final int MAX_CAUSES = 5;
   private static final int MAX_FRAMES = 15;
 
+  // The app-facing video_player package keeps only the message of an error that arrives
+  // after initialization, so the error code, and the top frames of the root cause when
+  // there is one, are repeated there (Sentry DISHA-8YY).
+  private static final int MAX_MESSAGE_FRAMES = 3;
+
   @NonNull
   private static String buildErrorMessage(@NonNull PlaybackException error) {
-    String message = "Video player had error " + error;
+    StringBuilder builder = new StringBuilder("Video player had error ").append(error);
     Throwable root = rootCause(error);
-    return root == error ? message : message + " (caused by " + root + ")";
+    if (root != error) {
+      builder.append(" (caused by ").append(root).append(")");
+    }
+    builder.append(" [").append(error.getErrorCodeName());
+    if (root != error) {
+      StackTraceElement[] trace = root.getStackTrace();
+      for (int i = 0; i < Math.min(trace.length, MAX_MESSAGE_FRAMES); i++) {
+        builder.append(i == 0 ? " at " : " | ").append(trace[i]);
+      }
+    }
+    return builder.append("]").toString();
   }
 
   @NonNull

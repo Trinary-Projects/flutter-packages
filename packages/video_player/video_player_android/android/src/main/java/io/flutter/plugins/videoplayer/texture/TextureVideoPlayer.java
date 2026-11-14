@@ -11,6 +11,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
@@ -32,6 +33,10 @@ import io.flutter.view.TextureRegistry.SurfaceProducer;
 public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProducer.Callback {
   // True when the ExoPlayer instance has a null surface.
   private boolean needsSurface = true;
+
+  // Disha fork: true when onSurfaceCleanup stopped a prepared player, so that
+  // onSurfaceAvailable prepares it again.
+  private boolean stoppedForSurfaceCleanup = false;
 
   /**
    * Creates a texture video player.
@@ -136,10 +141,28 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
       exoPlayer.setVideoSurface(surfaceProducer.getSurface());
       needsSurface = false;
     }
+    if (stoppedForSurfaceCleanup) {
+      stoppedForSurfaceCleanup = false;
+      // stop() kept the media item, the position and playWhenReady, so this resumes where
+      // playback was when the surface went away.
+      exoPlayer.prepare();
+    }
   }
 
   @RestrictTo(RestrictTo.Scope.LIBRARY)
   public void onSurfaceCleanup() {
+    // Disha fork: release the decoders before the surface goes away. Flutter destroys the
+    // surface when the backgrounded app is asked to trim memory; detaching it from a live
+    // MediaCodec makes the codec switch to a placeholder surface, which fails on many
+    // low-end decoders with IllegalStateException / CodecException and leaves the player in
+    // a permanent error state (Sentry DISHA-8YY, DISHA-8Z0, DISHA-90E). stop() keeps the
+    // media item, the position and playWhenReady; onSurfaceAvailable prepares again.
+    // A player that is already idle (never prepared, or failed) is left alone so that a
+    // reported error is not silently retried.
+    if (exoPlayer.getPlaybackState() != Player.STATE_IDLE) {
+      exoPlayer.stop();
+      stoppedForSurfaceCleanup = true;
+    }
     exoPlayer.setVideoSurface(null);
     needsSurface = true;
   }

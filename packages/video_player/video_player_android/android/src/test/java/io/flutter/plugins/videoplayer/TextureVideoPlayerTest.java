@@ -11,7 +11,6 @@ import static org.mockito.Mockito.*;
 import android.view.Surface;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
-import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -84,42 +83,72 @@ public final class TextureVideoPlayerTest {
   }
 
   @Test
-  public void onSurfaceProducerCleanupAndAvailableRemovesAndRestoresSurface() {
+  public void onSurfaceProducerCleanupStopsPlayerBeforeRemovingSurface() {
     VideoPlayer videoPlayer = createVideoPlayer();
 
     verify(mockProducer).setCallback(callbackCaptor.capture());
     verify(mockExoPlayer).setVideoSurface(notNull());
-    verify(mockExoPlayer, never()).release();
-
-    when(mockExoPlayer.getCurrentPosition()).thenReturn(10L);
-    when(mockExoPlayer.getRepeatMode()).thenReturn(Player.REPEAT_MODE_ALL);
-    when(mockExoPlayer.getVolume()).thenReturn(0.5f);
-    when(mockExoPlayer.getPlaybackParameters()).thenReturn(new PlaybackParameters(2.5f));
+    when(mockExoPlayer.getPlaybackState()).thenReturn(Player.STATE_READY);
 
     TextureRegistry.SurfaceProducer.Callback producerLifecycle = callbackCaptor.getValue();
     producerLifecycle.onSurfaceCleanup();
 
+    // The decoders must be released before the surface they render to is detached.
+    InOrder inOrder = inOrder(mockExoPlayer);
+    inOrder.verify(mockExoPlayer).stop();
+    inOrder.verify(mockExoPlayer).setVideoSurface(null);
+    verify(mockExoPlayer, never()).release();
+    verify(mockExoPlayer, never()).pause();
+    verify(mockExoPlayer, never()).setPlayWhenReady(anyBoolean());
+
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void onSurfaceProducerAvailableAfterCleanupRestoresSurfaceAndPrepares() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+
+    verify(mockProducer).setCallback(callbackCaptor.capture());
+    when(mockExoPlayer.getPlaybackState()).thenReturn(Player.STATE_READY);
+
+    TextureRegistry.SurfaceProducer.Callback producerLifecycle = callbackCaptor.getValue();
+    producerLifecycle.onSurfaceCleanup();
+
+    reset(mockExoPlayer);
+    producerLifecycle.onSurfaceAvailable();
+
+    InOrder inOrder = inOrder(mockExoPlayer);
+    inOrder.verify(mockExoPlayer).setVideoSurface(notNull());
+    inOrder.verify(mockExoPlayer).prepare();
+
+    // A second notification must not prepare again.
+    reset(mockExoPlayer);
+    producerLifecycle.onSurfaceAvailable();
+    verify(mockExoPlayer, never()).prepare();
+
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void onSurfaceProducerCleanupLeavesIdlePlayerIdle() {
+    // An idle player has no decoders to release, and may be idle because it failed: it
+    // must not be prepared again behind the back of the Dart side.
+    VideoPlayer videoPlayer = createVideoPlayer();
+
+    verify(mockProducer).setCallback(callbackCaptor.capture());
+    when(mockExoPlayer.getPlaybackState()).thenReturn(Player.STATE_IDLE);
+
+    TextureRegistry.SurfaceProducer.Callback producerLifecycle = callbackCaptor.getValue();
+    producerLifecycle.onSurfaceCleanup();
+
+    verify(mockExoPlayer, never()).stop();
     verify(mockExoPlayer).setVideoSurface(null);
 
     reset(mockExoPlayer);
     producerLifecycle.onSurfaceAvailable();
 
     verify(mockExoPlayer).setVideoSurface(notNull());
-
-    videoPlayer.dispose();
-  }
-
-  @Test
-  public void onSurfaceProducerCleanupDoesNotStopOrPauseVideo() {
-    VideoPlayer videoPlayer = createVideoPlayer();
-
-    verify(mockProducer).setCallback(callbackCaptor.capture());
-    TextureRegistry.SurfaceProducer.Callback producerLifecycle = callbackCaptor.getValue();
-    producerLifecycle.onSurfaceCleanup();
-
-    verify(mockExoPlayer, never()).stop();
-    verify(mockExoPlayer, never()).pause();
-    verify(mockExoPlayer, never()).setPlayWhenReady(anyBoolean());
+    verify(mockExoPlayer, never()).prepare();
 
     videoPlayer.dispose();
   }

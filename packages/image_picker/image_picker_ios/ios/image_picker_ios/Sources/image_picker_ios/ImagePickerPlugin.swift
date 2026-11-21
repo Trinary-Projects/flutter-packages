@@ -132,6 +132,9 @@ public final class ImagePickerPlugin: NSObject, FlutterPlugin, FLTImagePickerApi
     var config = PHPickerConfiguration(photoLibrary: PHPhotoLibrary.shared())
     config.selectionLimit = context.maxItemCount
     config.preferredAssetRepresentationMode = .current
+    if #available(iOS 15.0, *), context.maxItemCount != 1 {
+      config.selection = .ordered
+    }
     var filters: [PHPickerFilter] = []
     if context.includeImages {
       filters.append(.images)
@@ -480,7 +483,11 @@ public final class ImagePickerPlugin: NSObject, FlutterPlugin, FLTImagePickerApi
     let currentCallContext = callContext
     let maxWidth = currentCallContext?.maxSize?.width
     let maxHeight = currentCallContext?.maxSize?.height
-    let desiredImageQuality = self.desiredImageQuality(currentCallContext?.imageQuality)
+    // Keep nil when no imageQuality was requested so the save operation can
+    // copy the original image file directly without decoding and re-encoding.
+    let desiredImageQuality = currentCallContext?.imageQuality.map {
+      self.desiredImageQuality($0)
+    }
     let requestFullMetadata = currentCallContext?.requestFullMetadata ?? false
     var pathList = [String?](repeating: nil, count: results.count)
     var saveError: FlutterError?

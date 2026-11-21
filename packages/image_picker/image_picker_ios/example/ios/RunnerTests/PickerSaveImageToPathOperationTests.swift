@@ -33,9 +33,9 @@ struct PickerSaveImageToPathOperationTests {
   /// are not stored across that boundary.
   private func runSaveOperation(
     result: PickerItem,
-    maxHeight: NSNumber = 100,
-    maxWidth: NSNumber = 100,
-    desiredImageQuality: NSNumber = 100,
+    maxHeight: NSNumber? = 100,
+    maxWidth: NSNumber? = 100,
+    desiredImageQuality: NSNumber? = 100,
     fullMetadata: Bool
   ) async throws -> (savedPath: String?, error: FlutterError?) {
     let outcome = await withCheckedContinuation {
@@ -225,5 +225,48 @@ struct PickerSaveImageToPathOperationTests {
       itemProvider: MovieItemProvider(movieURL: missing), assetIdentifier: nil)
     let (_, savedError) = try await runSaveOperation(result: result, fullMetadata: false)
     #expect(savedError?.code == "flutter_image_picker_copy_video_error")
+  }
+
+  @Test(arguments: [
+    ("jpgImage", "jpg", "jpg"),
+    ("pngImage", "png", "png"),
+    ("heicImage", "heic", "heic"),
+    ("webpImage", "webp", "webp"),
+    ("gifImage", "gif", "gif"),
+  ])
+  func copiesOriginalBytesWithoutReencodingWhenUnmodified(
+    resource: String, ext: String, expectedExtension: String
+  ) async throws {
+    let sourceURL = try #require(testBundle.url(forResource: resource, withExtension: ext))
+    let originalData = try Data(contentsOf: sourceURL)
+    let result = try pickerItem(forResource: resource, ext: ext)
+
+    let (savedPath, savedError) = try await runSaveOperation(
+      result: result,
+      maxHeight: nil,
+      maxWidth: nil,
+      desiredImageQuality: nil,
+      fullMetadata: true)
+    #expect(savedError == nil)
+    let path = try #require(savedPath)
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    #expect(URL(fileURLWithPath: path).pathExtension == expectedExtension)
+    #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == originalData)
+  }
+
+  @Test func fallsBackToConversionForRawAndTiffWhenUnmodified() async throws {
+    for (resource, ext) in [("proRawImage", "dng"), ("tiffImage", "tiff")] {
+      let result = try pickerItem(forResource: resource, ext: ext)
+      let (savedPath, savedError) = try await runSaveOperation(
+        result: result,
+        maxHeight: nil,
+        maxWidth: nil,
+        desiredImageQuality: nil,
+        fullMetadata: true)
+      #expect(savedError == nil)
+      let path = try #require(savedPath)
+      defer { try? FileManager.default.removeItem(atPath: path) }
+      #expect(URL(fileURLWithPath: path).pathExtension == "jpg")
+    }
   }
 }

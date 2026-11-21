@@ -29,6 +29,28 @@
   return destination;
 }
 
++ (nullable NSURL *)saveOriginalImageFromURL:(NSURL *)imageURL
+                              typeIdentifier:(NSString *)typeIdentifier API_AVAILABLE(ios(14)) {
+  if (![[NSFileManager defaultManager] isReadableFileAtPath:[imageURL path]]) {
+    return nil;
+  }
+  NSString *extension = imageURL.pathExtension.lowercaseString;
+  if (extension.length == 0) {
+    extension = [UTType typeWithIdentifier:typeIdentifier].preferredFilenameExtension.lowercaseString;
+  }
+  if ([extension isEqualToString:@"jpeg"]) {
+    extension = @"jpg";
+  }
+  NSString *suffix =
+      extension.length > 0 ? [@"." stringByAppendingString:extension] : kFLTImagePickerDefaultSuffix;
+  NSURL *destination = [NSURL fileURLWithPath:[self temporaryFilePath:suffix]];
+  NSError *error;
+  if (![[NSFileManager defaultManager] copyItemAtURL:imageURL toURL:destination error:&error]) {
+    return nil;
+  }
+  return destination;
+}
+
 + (NSString *)saveImageWithOriginalImageData:(NSData *)originalImageData
                                        image:(UIImage *)image
                                     maxWidth:(NSNumber *)maxWidth

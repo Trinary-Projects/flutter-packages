@@ -17,6 +17,11 @@ NS_ASSUME_NONNULL_BEGIN
 // Saves video to temporary URL. Returns nil on failure;
 + (nullable NSURL *)saveVideoFromURL:(NSURL *)videoURL;
 
+// Copies an unmodified image file to a unique temporary URL without decoding or re-encoding.
+// Returns nil on failure.
++ (nullable NSURL *)saveOriginalImageFromURL:(NSURL *)imageURL
+                              typeIdentifier:(NSString *)typeIdentifier API_AVAILABLE(ios(14));
+
 // Saves image with correct meta data and extention copied from the original asset.
 // maxWidth and maxHeight are used only for GIF images.
 + (NSString *)saveImageWithOriginalImageData:(nullable NSData *)originalImageData

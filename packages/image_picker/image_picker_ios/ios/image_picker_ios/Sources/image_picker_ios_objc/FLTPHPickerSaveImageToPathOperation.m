@@ -29,7 +29,7 @@ API_AVAILABLE(ios(14))
 - (instancetype)initWithResult:(nullable NSObject<FIPPickerItem> *)result
                      maxHeight:(nullable NSNumber *)maxHeight
                       maxWidth:(nullable NSNumber *)maxWidth
-           desiredImageQuality:(NSNumber *)desiredImageQuality
+           desiredImageQuality:(nullable NSNumber *)desiredImageQuality
                   fullMetadata:(BOOL)fullMetadata
                 savedPathBlock:(FLTGetSavedPath)savedPathBlock API_AVAILABLE(ios(14)) {
   if (self = [super init]) {
@@ -93,20 +93,28 @@ API_AVAILABLE(ios(14))
     // This includes UTTypeHEIC, UTTypeHEIF, UTTypeLivePhoto, UTTypeICO, UTTypeICNS, UTTypePNG
     // UTTypeGIF, UTTypeJPEG, UTTypeWebP, UTTypeTIFF, UTTypeBMP, UTTypeSVG, UTTypeRAWImage
     if ([self.result.itemProvider hasItemConformingToTypeIdentifier:UTTypeImage.identifier]) {
-      [self.result.itemProvider
-          loadDataRepresentationForTypeIdentifier:UTTypeImage.identifier
-                                completionHandler:^(NSData *_Nullable data,
-                                                    NSError *_Nullable error) {
-                                  if (data != nil) {
-                                    [self processImage:data];
-                                  } else {
-                                    FlutterError *flutterError =
-                                        [FlutterError errorWithCode:@"invalid_image"
-                                                            message:error.localizedDescription
-                                                            details:error.domain];
-                                    [self completeOperationWithPath:nil error:flutterError];
-                                  }
-                                }];
+      BOOL shouldCopyOriginal =
+          (self.maxWidth == nil && self.maxHeight == nil && self.desiredImageQuality == nil);
+      NSString *fastCopyTypeIdentifier =
+          shouldCopyOriginal ? [self fastCopyImageTypeIdentifier] : nil;
+      if (fastCopyTypeIdentifier != nil) {
+        [self copyOriginalImageWithTypeIdentifier:fastCopyTypeIdentifier];
+      } else {
+        [self.result.itemProvider
+            loadDataRepresentationForTypeIdentifier:UTTypeImage.identifier
+                                  completionHandler:^(NSData *_Nullable data,
+                                                      NSError *_Nullable error) {
+                                    if (data != nil) {
+                                      [self processImage:data];
+                                    } else {
+                                      FlutterError *flutterError =
+                                          [FlutterError errorWithCode:@"invalid_image"
+                                                              message:error.localizedDescription
+                                                              details:error.domain];
+                                      [self completeOperationWithPath:nil error:flutterError];
+                                    }
+                                  }];
+      }
     } else if ([self.result.itemProvider
                    // This supports uniform types that conform to UTTypeMovie.
                    // This includes kUTTypeVideo, kUTTypeMPEG4, public.3gpp, kUTTypeMPEG,
@@ -122,6 +130,79 @@ API_AVAILABLE(ios(14))
   } else {
     [self setFinished:YES];
   }
+}
+
+/// Returns a concrete image UTI suitable for direct file copy without decoding
+/// or re-encoding, or nil when the asset should go through UIImage conversion
+/// (e.g. RAW/DNG/TIFF or synthetic providers with no registered type identifiers).
+- (nullable NSString *)fastCopyImageTypeIdentifier API_AVAILABLE(ios(14)) {
+  NSArray<UTType *> *fastCopyTypes = @[
+    UTTypeHEIC,
+    UTTypeHEIF,
+    UTTypePNG,
+    UTTypeJPEG,
+    UTTypeWebP,
+    UTTypeGIF,
+    UTTypeBMP,
+  ];
+  NSMutableArray<UTType *> *matchingTypes = [NSMutableArray array];
+  for (NSString *identifier in self.result.itemProvider.registeredTypeIdentifiers) {
+    UTType *type = [UTType typeWithIdentifier:identifier];
+    if (type == nil || ![type conformsToType:UTTypeImage]) {
+      continue;
+    }
+    for (UTType *allowed in fastCopyTypes) {
+      if ([type conformsToType:allowed]) {
+        [matchingTypes addObject:type];
+        break;
+      }
+    }
+  }
+  if (matchingTypes.count == 0) {
+    return nil;
+  }
+  // Prefer a non-JPEG concrete representation (e.g. HEIC on a Live Photo where
+  // iOS also registers a transcoded JPEG) so PHPicker yields the original file
+  // without transcoding.
+  for (UTType *type in matchingTypes) {
+    if (![type conformsToType:UTTypeJPEG]) {
+      return type.identifier;
+    }
+  }
+  return matchingTypes.firstObject.identifier;
+}
+
+/// Copies the original image file directly into NSTemporaryDirectory() without
+/// decoding into UIImage or re-encoding JPEG/PNG/EXIF.
+- (void)copyOriginalImageWithTypeIdentifier:(NSString *)typeIdentifier API_AVAILABLE(ios(14)) {
+  [self.result.itemProvider
+      loadFileRepresentationForTypeIdentifier:typeIdentifier
+                            completionHandler:^(NSURL *_Nullable imageURL,
+                                                NSError *_Nullable error) {
+                              if (imageURL == nil || error != nil) {
+                                FlutterError *flutterError = [FlutterError
+                                    errorWithCode:@"invalid_image"
+                                          message:error.localizedDescription
+                                                      ?: @"Could not load image file."
+                                          details:error.domain];
+                                [self completeOperationWithPath:nil error:flutterError];
+                                return;
+                              }
+
+                              NSURL *destination = [FLTImagePickerPhotoAssetUtil
+                                  saveOriginalImageFromURL:imageURL
+                                            typeIdentifier:typeIdentifier];
+                              if (destination == nil) {
+                                FlutterError *flutterError = [FlutterError
+                                    errorWithCode:@"create_error"
+                                          message:@"Could not cache the image file."
+                                          details:nil];
+                                [self completeOperationWithPath:nil error:flutterError];
+                                return;
+                              }
+
+                              [self completeOperationWithPath:[destination path] error:nil];
+                            }];
 }
 
 /// Processes the image.

@@ -29,7 +29,7 @@ typedef void (^FLTGetSavedPath)(NSString *_Nullable savedPath, FlutterError *_Nu
 - (nullable instancetype)initWithResult:(nullable NSObject<FIPPickerItem> *)result
                               maxHeight:(nullable NSNumber *)maxHeight
                                maxWidth:(nullable NSNumber *)maxWidth
-                    desiredImageQuality:(NSNumber *)desiredImageQuality
+                    desiredImageQuality:(nullable NSNumber *)desiredImageQuality
                            fullMetadata:(BOOL)fullMetadata
                          savedPathBlock:(FLTGetSavedPath)savedPathBlock API_AVAILABLE(ios(14));
 

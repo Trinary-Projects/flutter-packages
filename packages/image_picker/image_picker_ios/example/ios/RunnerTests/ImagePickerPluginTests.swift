@@ -446,6 +446,20 @@ struct ImagePickerPluginTests {
       creator.lastConfiguration?.preferredAssetRepresentationMode == .current)
   }
 
+  @Test func pickMultiImageSetsOrderedSelection() {
+    let creator = RecordingPHPickerCreator()
+    let plugin = ImagePickerPlugin(
+      viewProvider: StubViewProvider(viewController: UIViewController()))
+    plugin.phPickerCreator = creator
+    plugin.pickMultiImage(
+      with: FLTMaxSize(), quality: nil, fullMetadata: false, limit: 20
+    ) { _, _ in }
+    if #available(iOS 15.0, *) {
+      #expect(creator.lastConfiguration?.selection == .ordered)
+    }
+    #expect(creator.lastConfiguration?.selectionLimit == 20)
+  }
+
   @Test func pickImageInvalidResultWhenMultiplePathsReturned() async {
     let plugin = ImagePickerPlugin(viewProvider: StubViewProvider())
     await confirmation("one result") { confirmed in
